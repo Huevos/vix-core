@@ -48,8 +48,8 @@ class VIXMenu(Screen, ProtectedScreen):
 		self.menu = args
 		self.list = []
 		if self.menu == 0:
-			self.list.append(("backup-manager", _("Backup settings"), _("Manage settings backup."), None))
-			self.list.append(("image-manager", _("ViX Image Manager"), _("Backup/Flash/ReBoot system image."), None))
+			self.list.append(("backup-manager", _("Backup manager"), _("Manage settings backup."), None))
+			self.list.append(("image-manager", _("Image manager"), _("Backup/Flash/ReBoot system image."), None))
 			self.list.append(("ipkg-install", _("Install local extension"), _("Install IPK's from your tmp folder."), None))
 			self.list.append(("mount-manager", _("Mount manager"), _("Manage your devices mount points."), None))
 			self.list.append(("script-runner", _("Script runner"), _("Run your shell scripts."), None))

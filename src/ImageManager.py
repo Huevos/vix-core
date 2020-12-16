@@ -64,12 +64,9 @@ config.imagemanager.scheduletime = ConfigClock(default=0)  # 1:00
 config.imagemanager.query = ConfigYesNo(default=True)
 config.imagemanager.lastbackup = ConfigNumber(default=0)
 config.imagemanager.number_to_keep = ConfigNumber(default=0)
-config.imagemanager.imagefeed_User = ConfigText(default="http://192.168.0.171/openvix-builds/", fixed_size=False)
 config.imagemanager.imagefeed_ViX = ConfigText(default="http://www.openvix.co.uk/openvix-builds/", fixed_size=False)
 config.imagemanager.imagefeed_ATV = ConfigText(default="http://images.mynonpublic.com/openatv/json", fixed_size=False)
 config.imagemanager.imagefeed_Pli = ConfigText(default="http://downloads.openpli.org/json", fixed_size=False)
-config.imagemanager.imagefeed_Dev = ConfigText(default="ftp://login@176.31.181.161/***Dev_Images_5.2***", fixed_size=False)
-config.imagemanager.imagefeed_DevL = ConfigText(default="login:pswd", fixed_size=False)
 
 autoImageManagerTimer = None
 
@@ -250,8 +247,8 @@ class VIXImageManager(Screen):
 		self.session.openWithCallback(self.setupDone, Setup, "viximagemanager", "SystemPlugins/ViX", PluginLanguageDomain)
 
 	def doDownload(self):
-		self.choices = [("Local", 1), ("OpenViX", 2), ("OpenATV", 3), ("OpenPli", 4), ("ViXDev", 5)]
-		self.urlchoices = [config.imagemanager.imagefeed_User.value, config.imagemanager.imagefeed_ViX.value, config.imagemanager.imagefeed_ATV.value, config.imagemanager.imagefeed_Pli.value, config.imagemanager.imagefeed_Dev.value]
+		self.choices = [("OpenViX", 1), ("OpenATV", 2), ("OpenPli", 3)]
+		self.urlchoices = [config.imagemanager.imagefeed_ViX.value, config.imagemanager.imagefeed_ATV.value, config.imagemanager.imagefeed_Pli.value]
 		self.message = _("Do you want to change download url")
 		self.session.openWithCallback(self.doDownload2, MessageBox, self.message, list=self.choices, default=1, simple=True)
 
@@ -1335,13 +1332,7 @@ class ImageManagerDownload(Screen):
 			if self.boxtype == "dm8000":
 				self.boxtype = getMachineMake()
 		versions = [6.4, 6.5]		# for Twol
-		if "Dev" in self.urlDistro:
-			if "login:pswd" in config.imagemanager.imagefeed_DevL.value:
-				return
-			else:
-				self.urlDistro = self.urlDistro.replace("login", "%s") % config.imagemanager.imagefeed_DevL.value
-				versions = [5.4, 5.5]	# for Dev
-		elif "www.openvix" in self.urlDistro:
+		if "www.openvix" in self.urlDistro:
 			versions = [4.2, 5.0, 5.1, 5.2, 5.3, 5.4, 5.5]
 		subfolders = ("", "Archives") # i.e. check root folder and "Archives" folder. Images will appear in the UI in this order.
 		if not self.parseJsonFormat and not self.imagesList: # OpenViX
