@@ -15,7 +15,7 @@ from boxbranding import getBoxType, getImageType, getImageDistro, getImageVersio
 from enigma import eTimer, fbClass
 from os import path, stat, system, mkdir, makedirs, listdir, remove, rename, statvfs, chmod, walk, symlink, unlink
 from shutil import rmtree, move, copy, copyfile
-from time import localtime, time, strftime, mktime
+from time import localtime, time, strftime, mktime, sleep
 
 from . import _, PluginLanguageDomain
 from Components.ActionMap import ActionMap
@@ -26,6 +26,7 @@ from Components.Console import Console
 from Components.Harddisk import harddiskmanager, getProcMounts
 from Components.Label import Label
 from Components.MenuList import MenuList
+from Components.Sources.Progress import Progress
 from Components.Sources.StaticText import StaticText
 from Components.SystemInfo import SystemInfo
 import Components.Task
@@ -1414,44 +1415,12 @@ class ImageManagerDownload(Screen):
 
 	def doDownloadX(self, answer):
 		if answer:
-			selectedimage = self["list"].getCurrent()
 			currentSelected = self["list"].l.getCurrentSelection()
 			selectedimage = currentSelected[0][0]
-			headers, fileurl = self.processAuthLogin(currentSelected[0][1])
+			fileurl = currentSelected[0][1]
 			fileloc = self.BackupDirectory + selectedimage
-			url_encode = "utf-8"
-			b_url = fileurl.encode(url_encode)
-			Tools.CopyFiles.downloadFile(b_url, fileloc, selectedimage.replace("_usb", ""), headers=headers)
-			for job in Components.Task.job_manager.getPendingJobs():
-				if job.name.startswith(_("Downloading")):
-					break
-			self.showJobView(job)
+			self.session.open(HttpDownloader, fileurl, fileloc)
 			self.close()
-
-	def showJobView(self, job):
-		Components.Task.job_manager.in_background = False
-		self.session.openWithCallback(self.JobViewCB, JobView, job, cancelable = False, backgroundable = True, afterEventChangeable = False, afterEvent = "close")
-
-	def JobViewCB(self, in_background):
-		Components.Task.job_manager.in_background = in_background
-
-	def processAuthLogin(self, url):
-		try:
-			from urlparse import urlparse
-		except:
-			from urllib.parse import urlparse
-		headers = None
-		parsed = urlparse(url)
-		scheme = parsed.scheme
-		username = parsed.username if parsed.username else ""
-		password = parsed.password if parsed.password else ""
-		hostname = parsed.hostname
-		path  = parsed.path
-		if username or password:
-			import base64
-			base64string = base64.b64encode('%s:%s' % (username, password))
-			headers = {"Authorization": "Basic %s" % base64string}
-		return headers, scheme + "://" + hostname + path
 
 
 class ImageManagerSetup(Setup):
@@ -1479,3 +1448,119 @@ class ImageManagerSetup(Setup):
 			configElement.value = configElement.value.strip("/") # remove any trailing slash
 		else:
 			configElement.value = configElement.default
+
+
+class HttpDownloader(Screen):
+	def __init__(self, session, url, destination):
+		try:
+			import thread
+		except:
+			import _thread as thread
+		if not (url and destination):
+			self.close()
+			return
+		self.url = url
+		self.destination = destination
+		Screen.__init__(self, session)
+		self.setTitle(_("Downloader"))
+		self.skinName = ["JobView"]
+		filename = url.split("/")[-1]
+		self["key_red"] = StaticText(_("Cancel"))
+		self["job_name"] = StaticText(filename)
+		self["job_task"] = StaticText()
+		self["job_progress"] = Progress()
+		self["job_status"] = StaticText("Preparing")
+		self["summary_job_name"] = StaticText(filename)
+		self["summary_job_progress"] = Progress()
+		self["summary_job_task"] = StaticText()
+		self["actions"] = ActionMap(["SetupActions"], {
+				"cancel": self.abort,
+		}, -2)
+		self.downloader_running = True
+		self.update_progress = False
+		self.stopdownload = False
+		self.downloadaborted = False
+		thread.start_new_thread(self.doDownload, ())
+		self.ticks = 0
+		thread.start_new_thread(self.progressUpdater, ())
+
+	def progressUpdater(self):
+		if self.stopdownload:
+			return
+		sleep(0.1)
+		if self.update_progress:
+			currentsize = path.isfile(self.destination) and stat(self.destination).st_size or 0
+			currentsizeMB = round(currentsize / (1024*1024), 2)
+			self["job_status"].text = _("In progress")
+			if self.filesize > 0:
+				filesizeMB = round(self.filesize / (1024*1024), 2)
+				self["job_progress"].value = int(currentsize / (self.filesize / 100))
+				self["summary_job_progress"].value = int(currentsize / (self.filesize / 100))
+			self["job_task"].text = _("Downloading %s%s MB") % (str(currentsizeMB), "" if self.filesize < 1 else _(" of %s") % str(filesizeMB))
+		if not self.downloader_running:
+			self.close()
+			return
+		self.progressUpdater()
+		
+	def abort(self):
+		# User override. Stop the download and delete partially downloaded file
+		self.stopdownload = True
+		sleep(0.1)
+		if self.ticks > 50 or self.downloadaborted:
+			try:
+				remove(self.destination) # delete partial download
+			except:
+				pass
+			self.close()
+			return
+		self.ticks += 1
+		self.abort()
+			
+	def doDownload(self):
+		try:
+			from urlparse import urlparse
+		except:
+			from urllib.parse import urlparse
+		parsed = urlparse(self.url)
+		scheme = parsed.scheme
+		username = parsed.username if parsed.username else ""
+		password = parsed.password if parsed.password else ""
+		hostname = parsed.hostname
+		path  = parsed.path
+		
+		try:
+			request = Request(scheme + "://" + hostname + path)
+			if username or password:
+				import base64
+				base64string = base64.b64encode('%s:%s' % (username, password))
+				request.add_header("Authorization", "Basic %s" % base64string)
+			response = urlopen(request)
+			
+			try:
+				self.filesize = [int(h.split()[1].strip()) for h in response.headers.__str__().split("\n") if h.startswith("Content-Length:")][0]
+			except:
+				self.filesize = -1
+
+			if self.filesize > 0:
+				self["job_progress"].range = 100
+				self["summary_job_progress"].range = 100
+				self["job_progress"].value = 0
+				self["summary_job_progress"].value = 0
+
+			CHUNK = 16 * 1024
+			with open(self.destination, 'wb') as f:
+				while True:
+					if self.stopdownload:
+						self.downloadaborted = True
+						return
+					chunk = response.read(CHUNK)
+					if not chunk:
+						break
+					f.write(chunk)
+					self.update_progress = True
+				f.close()
+		except Exception as err:
+			print("[ImageManager] Unable to download %s\n%s: '%s'!" % (self.url, type(err).__name__, err))
+			import traceback
+			traceback.print_exc()
+		self.downloader_running = False
